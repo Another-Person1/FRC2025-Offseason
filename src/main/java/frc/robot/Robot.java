@@ -13,7 +13,7 @@ import edu.wpi.first.wpilibj.XboxController;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
-
+import frc.robot.subsystems.swervedrive.SwerveSubsystem;
 import java.io.File;
 import edu.wpi.first.wpilibj.Filesystem;
 import swervelib.parser.SwerveParser;
@@ -40,10 +40,8 @@ public class Robot extends TimedRobot
 
   private PhotonCamera camera = new PhotonCamera("center");
 
-
-  double maximumSpeed = Units.feetToMeters(4.5);
-  File swerveJsonDirectory = new File(Filesystem.getDeployDirectory(),"swerve");
-  SwerveDrive Swerve = new SwerveDrive(null, null, kDefaultPeriod, null);
+  private final SwerveSubsystem drivebase = new SwerveSubsystem(new File(Filesystem.getDeployDirectory(),
+  "swerve/kraken-navarch"));
 
 
   public Robot()
@@ -230,7 +228,7 @@ public class Robot extends TimedRobot
         var chassisSpeeds = new edu.wpi.first.math.kinematics.ChassisSpeeds(forward, strafe, turn);
 
         // Drive the swerve system with the ChassisSpeeds object, false for field-relative, and null for no center of rotation
-        Swerve.drive(chassisSpeeds, false, null);
+        drivebase.drive(chassisSpeeds);
 
 
         // Put debug information to the dashboard
