@@ -773,14 +773,4 @@ public class SwerveSubsystem extends SubsystemBase
   // Map of AprilTag IDs to their corresponding positions and angles
   private java.util.Map<Integer, TagData> TagArray = new java.util.HashMap<>();
   
-  /**
-   * Initializes the TagArray with AprilTag data
-   */
-  private void initializeTagArray() {
-      // Example initialization - you should replace with actual values
-      // Tag ID 1
-      TagArray.put(1, new TagData(1.0, 2.0, Rotation2d.fromDegrees(0)));
-      // Add more tags as needed
-      // TagArray.put(2, new TagData(...));
-  }
 }

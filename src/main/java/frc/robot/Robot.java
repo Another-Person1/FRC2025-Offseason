@@ -5,6 +5,13 @@
 package frc.robot;
 
 import org.photonvision.PhotonCamera;
+import org.photonvision.targeting.TargetCorner;
+
+import com.pathplanner.lib.auto.AutoBuilder;
+import com.pathplanner.lib.path.GoalEndState;
+import com.pathplanner.lib.path.PathConstraints;
+import com.pathplanner.lib.path.PathPlannerPath;
+import com.pathplanner.lib.path.Waypoint;
 
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.TimedRobot;
@@ -15,9 +22,14 @@ import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import frc.robot.subsystems.swervedrive.SwerveSubsystem;
 import java.io.File;
+import java.util.List;
+
 import edu.wpi.first.wpilibj.Filesystem;
 import swervelib.parser.SwerveParser;
 import swervelib.SwerveDrive;
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Transform3d;
 import edu.wpi.first.math.util.Units;
 
 
@@ -159,83 +171,85 @@ public class Robot extends TimedRobot
   @Override
   public void teleopPeriodic()
   {
-            // Calculate drivetrain commands from Joystick values
+    // Calculate drivetrain commands from Joystick values
+    double forward = -controller.getLeftY() * Constants.DrivebaseConstants.kMaxLinearSpeed;
+    double strafe = -controller.getLeftX() * Constants.DrivebaseConstants.kMaxLinearSpeed;
+    double turn = -controller.getRightX() * Constants.DrivebaseConstants.kMaxAngularSpeed;
 
-        double forward = -controller.getLeftY() * Constants.DrivebaseConstants.kMaxLinearSpeed;
+    // Read in relevant data from the Camera
+    boolean targetVisible = false;
+    Transform3d pose = null;
 
-        double strafe = -controller.getLeftX() * Constants.DrivebaseConstants.kMaxLinearSpeed;
+    // Get all the results from the camera, which may include multiple frames of data.
+    var results = camera.getAllUnreadResults();
 
-        double turn = -controller.getRightX() * Constants.DrivebaseConstants.kMaxAngularSpeed;
+    if (!results.isEmpty())
+    {
+      // Camera processed a new frame since last
+      var result = results.get(results.size() - 1);
 
-
-        // Read in relevant data from the Camera
-
-        boolean targetVisible = false;
-
-        double targetYaw = 0.0;
-
-        var results = camera.getAllUnreadResults();
-
-        if (!results.isEmpty()) {
-
-            // Camera processed a new frame since last
-
-            // Get the last one in the list.
-
-            var result = results.get(results.size() - 1);
-
-            if (result.hasTargets()) {
-
-                // At least one AprilTag was seen by the camera
-
-                for (var target : result.getTargets()) {
-
-                    if (target.getFiducialId() == 7) {
-
-                        // Found Tag 7, record its information
-
-                        targetYaw = target.getYaw();
-
-                        targetVisible = true;
-
-                    }
-
-                }
-
-            }
-
+      if (result.hasTargets())
+      {
+        // At least one AprilTag was seen by the camera
+        for (var target : result.getTargets())
+        {
+          if (target.getFiducialId() == 7)
+          {
+            // Found Tag 7, record its information
+            pose = target.getBestCameraToTarget();
+            targetVisible = true;
+          }
+          SmartDashboard.putNumber("AprilTag ID", target.getFiducialId());SmartDashboard.putNumber("AprilTag ID", target.getFiducialId());// Send AprilTag ID to SmartDashboard
         }
-
-
-        // Auto-align when requested
-
-        if (controller.getAButton() && targetVisible) {
-
-            // Driver wants auto-alignment to tag 7
-
-            // And, tag 7 is in sight, so we can turn toward it.
-
-            // Override the driver's turn command with an automatic one that turns toward the tag.
-
-            turn = -1.0 * targetYaw * Constants.VisionConstants.VISION_TURN_kP * Constants.DrivebaseConstants.kMaxAngularSpeed;
-
-        }
-
-
-        // Command drivetrain motors based on target speeds
-
-        // Create a ChassisSpeeds object using the forward, strafe, and turn values
-        var chassisSpeeds = new edu.wpi.first.math.kinematics.ChassisSpeeds(forward, strafe, turn);
-
-        // Drive the swerve system with the ChassisSpeeds object, false for field-relative, and null for no center of rotation
-        drivebase.drive(chassisSpeeds);
-
-
-        // Put debug information to the dashboard
-
-        SmartDashboard.putBoolean("Vision Target Visible", targetVisible);
-
       }
+    }
+    else {
+      SmartDashboard.putNumber("AprilTag ID", 0);
+
+    }
+
+    // Auto-align when requested
+    if (controller.getAButton() && targetVisible && pose != null)
+    {
+      // Driver wants auto-alignment to tag 7
+      // And, tag 7 is in sight, so we can turn toward it.
+      System.out.println("Auto aligning.....");
+
+      // Override the driver's turn command with an automatic one that turns toward the tag.
+      //double yaw = pose.getRotation().getZ();
+      //turn = -1.0 * yaw * Constants.VisionConstants.VISION_TURN_kP * Constants.DrivebaseConstants.kMaxAngularSpeed;
+
+      // Generate a path using the AprilTag pose
+      Pose2d tagPose = new Pose2d(
+          Units.metersToFeet(pose.getTranslation().getX()),
+          Units.metersToFeet(pose.getTranslation().getY()),
+          Rotation2d.fromDegrees(Units.radiansToDegrees(pose.getRotation().getZ()))
+      );
+
+      List<Waypoint> waypoints = PathPlannerPath.waypointsFromPoses(
+          drivebase.getPose(), // Current robot pose
+          tagPose // Target AprilTag pose
+      );
+
+      PathConstraints constraints = new PathConstraints(3.0, 3.0, 2 * Math.PI, 4 * Math.PI); // Path constraints
+      PathPlannerPath path = new PathPlannerPath(
+          waypoints,
+          constraints,
+          null, // Ideal starting state
+          new GoalEndState(0.0, tagPose.getRotation()) // Goal end state
+      );
+
+      path.preventFlipping = true;
+      AutoBuilder.followPath(path);
+    }
+
+    // Command drivetrain motors based on target speeds
+    var chassisSpeeds = new edu.wpi.first.math.kinematics.ChassisSpeeds(forward, strafe, turn);
+    drivebase.drive(chassisSpeeds);
+
+    // Put debug information to the dashboard
+    SmartDashboard.putBoolean("Vision Target Visible", targetVisible);
+  }
 
   @Override
   public void testInit()
