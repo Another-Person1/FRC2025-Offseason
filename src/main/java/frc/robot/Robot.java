@@ -166,77 +166,69 @@ public class Robot extends TimedRobot
     }
   }
 
- /**
+ /** 
  * This function is called periodically during operator control.
  */
 @Override
 public void teleopPeriodic() {
-    // Calculate drivetrain commands from Joystick values
-    double forward = -controller.getLeftY() * Constants.DrivebaseConstants.kMaxLinearSpeed;
-    double strafe = -controller.getLeftX() * Constants.DrivebaseConstants.kMaxLinearSpeed;
+    // Calculate drivetrain commands from joystick values
+    double forward = controller.getLeftY() * Constants.DrivebaseConstants.kMaxLinearSpeed;
+    double strafe = controller.getLeftX() * Constants.DrivebaseConstants.kMaxLinearSpeed;
     double turn = -controller.getRightX() * Constants.DrivebaseConstants.kMaxAngularSpeed;
 
-    // Read in relevant data from the Camera
+    // Initialize target visibility and transform
     boolean targetVisible = false;
     Transform3d cameraToTarget = null;
 
-    // Get all the results from the camera, which may include multiple frames of data.
+    // Get all unread results from the camera
     var results = camera.getAllUnreadResults();
 
     if (!results.isEmpty()) {
-        // Camera processed a new frame since last
-        var result = results.get(results.size() - 1);
+        // Use the latest result
+        var latestResult = results.get(results.size() - 1);
 
-        if (result.hasTargets()) {
-            // At least one AprilTag was seen by the camera
-            for (var target : result.getTargets()) {
+        if (latestResult.hasTargets()) {
+            // Iterate through targets to find AprilTag ID 7
+            for (var target : latestResult.getTargets()) {
                 if (target.getFiducialId() == 7) {
-                    // Found Tag 7, record its information
                     cameraToTarget = target.getBestCameraToTarget();
                     targetVisible = true;
                     SmartDashboard.putNumber("AprilTag ID", target.getFiducialId());
                     break; // Exit loop after finding tag 7
                 }
             }
-        } else {
-            SmartDashboard.putNumber("AprilTag ID", 0);
         }
-    } else {
+    }
+
+    // Set AprilTag ID to 0 if no target is found
+    if (!targetVisible) {
         SmartDashboard.putNumber("AprilTag ID", 0);
     }
 
-    // Auto-align when requested
-    if (controller.getAButton() && targetVisible && cameraToTarget != null) {
+    // Auto-align when the A button is pressed and the target is visible
+    if (controller.getAButtonPressed() && targetVisible && cameraToTarget != null) {
         System.out.println("Auto aligning to AprilTag ID 7...");
 
-        // Get the yaw (rotation around Z-axis) of the camera-to-target transform
-        double yaw = cameraToTarget.getRotation().getZ(); // In radians
+        // Calculate yaw error in radians
+        double yawError = -cameraToTarget.getRotation().getZ(); // Negative to correct toward target
 
-        // Apply a proportional controller to turn toward the target
-        double turnError = -yaw; // Negative to correct toward target
-        turn = turnError * Constants.VisionConstants.VISION_TURN_kP * Constants.DrivebaseConstants.kMaxAngularSpeed;
+        // Apply proportional control to turn toward the target
+        turn = yawError * Constants.VisionConstants.VISION_TURN_kP * Constants.DrivebaseConstants.kMaxAngularSpeed;
 
-        // Clamp the turn speed to avoid overshooting
+        // Clamp turn speed to avoid overshooting
         turn = Math.max(-Constants.DrivebaseConstants.kMaxAngularSpeed, 
                         Math.min(turn, Constants.DrivebaseConstants.kMaxAngularSpeed));
-
-        // Optional: Add camera-to-robot offset if camera is not at robot's center
-        // Transform3d robotToCamera = new Transform3d(...); // Define camera offset
-        // Transform3d robotToTarget = cameraToTarget.plus(robotToCamera.inverse());
-        // Use robotToTarget.getRotation().getZ() for yaw if offset is applied
     }
 
-    // Command drivetrain motors based on target speeds
+    // Command drivetrain motors based on calculated speeds
     var chassisSpeeds = new ChassisSpeeds(forward, strafe, turn);
     drivebase.drive(chassisSpeeds);
 
-    // Put debug information to the dashboard
+    // Update SmartDashboard with debug information
     SmartDashboard.putBoolean("Vision Target Visible", targetVisible);
-    if (cameraToTarget != null) {
-        SmartDashboard.putNumber("Target Yaw (deg)", Math.toDegrees(cameraToTarget.getRotation().getZ()));
-    }
+    SmartDashboard.putNumber("Target Yaw (deg)", 
+        targetVisible && cameraToTarget != null ? Math.toDegrees(cameraToTarget.getRotation().getZ()) : 0.0);
 }
-
   @Override
   public void testInit()
   {
