@@ -292,7 +292,7 @@ public class RobotContainer
       driveController.x().whileTrue(Commands.runOnce(drivebase::lock, drivebase).repeatedly());
       driveController.rightBumper().onTrue(Commands.none());
       driveController.b().whileTrue(endEffector.setConveyorSpeedCommand(-0.12));
-      operatorController.a().onTrue(elevator.moveToPosition(ElevatorPosition.GROUND));
+      //operatorController.a().onTrue(elevator.moveToPosition(ElevatorPosition.GROUND));
       operatorController.y().onTrue(new L3Command(elevator, endEffector, 0));
       operatorController.x().onTrue(new L2Command(elevator, endEffector, 0));
       operatorController.b().onTrue(new L4Command(elevator, endEffector, 0));

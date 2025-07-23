@@ -30,6 +30,7 @@ import swervelib.SwerveDrive;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Transform3d;
+import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.util.Units;
 
 
@@ -165,12 +166,11 @@ public class Robot extends TimedRobot
     }
   }
 
-  /**
-   * This function is called periodically during operator control.
-   */
-  @Override
-  public void teleopPeriodic()
-  {
+ /**
+ * This function is called periodically during operator control.
+ */
+@Override
+public void teleopPeriodic() {
     // Calculate drivetrain commands from Joystick values
     double forward = -controller.getLeftY() * Constants.DrivebaseConstants.kMaxLinearSpeed;
     double strafe = -controller.getLeftX() * Constants.DrivebaseConstants.kMaxLinearSpeed;
@@ -178,78 +178,64 @@ public class Robot extends TimedRobot
 
     // Read in relevant data from the Camera
     boolean targetVisible = false;
-    Transform3d pose = null;
+    Transform3d cameraToTarget = null;
 
     // Get all the results from the camera, which may include multiple frames of data.
     var results = camera.getAllUnreadResults();
 
-    if (!results.isEmpty())
-    {
-      // Camera processed a new frame since last
-      var result = results.get(results.size() - 1);
+    if (!results.isEmpty()) {
+        // Camera processed a new frame since last
+        var result = results.get(results.size() - 1);
 
-      if (result.hasTargets())
-      {
-        // At least one AprilTag was seen by the camera
-        for (var target : result.getTargets())
-        {
-          if (target.getFiducialId() == 7)
-          {
-            // Found Tag 7, record its information
-            pose = target.getBestCameraToTarget();
-            targetVisible = true;
-          }
-          SmartDashboard.putNumber("AprilTag ID", target.getFiducialId());SmartDashboard.putNumber("AprilTag ID", target.getFiducialId());// Send AprilTag ID to SmartDashboard
+        if (result.hasTargets()) {
+            // At least one AprilTag was seen by the camera
+            for (var target : result.getTargets()) {
+                if (target.getFiducialId() == 7) {
+                    // Found Tag 7, record its information
+                    cameraToTarget = target.getBestCameraToTarget();
+                    targetVisible = true;
+                    SmartDashboard.putNumber("AprilTag ID", target.getFiducialId());
+                    break; // Exit loop after finding tag 7
+                }
+            }
+        } else {
+            SmartDashboard.putNumber("AprilTag ID", 0);
         }
-      }
-    }
-    else {
-      SmartDashboard.putNumber("AprilTag ID", 0);
-
+    } else {
+        SmartDashboard.putNumber("AprilTag ID", 0);
     }
 
     // Auto-align when requested
-    if (controller.getAButton() && targetVisible && pose != null)
-    {
-      // Driver wants auto-alignment to tag 7
-      // And, tag 7 is in sight, so we can turn toward it.
-      System.out.println("Auto aligning.....");
+    if (controller.getAButton() && targetVisible && cameraToTarget != null) {
+        System.out.println("Auto aligning to AprilTag ID 7...");
 
-      // Override the driver's turn command with an automatic one that turns toward the tag.
-      //double yaw = pose.getRotation().getZ();
-      //turn = -1.0 * yaw * Constants.VisionConstants.VISION_TURN_kP * Constants.DrivebaseConstants.kMaxAngularSpeed;
+        // Get the yaw (rotation around Z-axis) of the camera-to-target transform
+        double yaw = cameraToTarget.getRotation().getZ(); // In radians
 
-      // Generate a path using the AprilTag pose
-      Pose2d tagPose = new Pose2d(
-          Units.metersToFeet(pose.getTranslation().getX()),
-          Units.metersToFeet(pose.getTranslation().getY()),
-          Rotation2d.fromDegrees(Units.radiansToDegrees(pose.getRotation().getZ()))
-      );
+        // Apply a proportional controller to turn toward the target
+        double turnError = -yaw; // Negative to correct toward target
+        turn = turnError * Constants.VisionConstants.VISION_TURN_kP * Constants.DrivebaseConstants.kMaxAngularSpeed;
 
-      List<Waypoint> waypoints = PathPlannerPath.waypointsFromPoses(
-          drivebase.getPose(), // Current robot pose
-          tagPose // Target AprilTag pose
-      );
+        // Clamp the turn speed to avoid overshooting
+        turn = Math.max(-Constants.DrivebaseConstants.kMaxAngularSpeed, 
+                        Math.min(turn, Constants.DrivebaseConstants.kMaxAngularSpeed));
 
-      PathConstraints constraints = new PathConstraints(3.0, 3.0, 2 * Math.PI, 4 * Math.PI); // Path constraints
-      PathPlannerPath path = new PathPlannerPath(
-          waypoints,
-          constraints,
-          null, // Ideal starting state
-          new GoalEndState(0.0, tagPose.getRotation()) // Goal end state
-      );
-
-      path.preventFlipping = true;
-      AutoBuilder.followPath(path);
+        // Optional: Add camera-to-robot offset if camera is not at robot's center
+        // Transform3d robotToCamera = new Transform3d(...); // Define camera offset
+        // Transform3d robotToTarget = cameraToTarget.plus(robotToCamera.inverse());
+        // Use robotToTarget.getRotation().getZ() for yaw if offset is applied
     }
 
     // Command drivetrain motors based on target speeds
-    var chassisSpeeds = new edu.wpi.first.math.kinematics.ChassisSpeeds(forward, strafe, turn);
+    var chassisSpeeds = new ChassisSpeeds(forward, strafe, turn);
     drivebase.drive(chassisSpeeds);
 
     // Put debug information to the dashboard
     SmartDashboard.putBoolean("Vision Target Visible", targetVisible);
-  }
+    if (cameraToTarget != null) {
+        SmartDashboard.putNumber("Target Yaw (deg)", Math.toDegrees(cameraToTarget.getRotation().getZ()));
+    }
+}
 
   @Override
   public void testInit()
